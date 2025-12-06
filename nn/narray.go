@@ -8,12 +8,22 @@ import (
 )
 
 type NArray struct {
-	Backing []float64
+	Backing    []float64
+	Dimensions []int
+}
+
+func NewNArrayFromDimensions(dims ...int) *NArray {
+	tensor := &NArray{
+		Backing: make([]float64, GetTotalElements(dims)),
+	}
+
+	return tensor.Reshape(dims...)
 }
 
 func NewNArray(values []float64) *NArray {
 	return &NArray{
-		Backing: values,
+		Backing:    values,
+		Dimensions: []int{len(values)},
 	}
 }
 
@@ -40,8 +50,56 @@ func NewNArrayRand(length int, rand *rand.Rand) *NArray {
 	return NewNArray(array)
 }
 
+func (t *NArray) GetIndex(dims ...int) int {
+	if len(t.Dimensions) != len(dims) {
+		return -1
+	}
+
+	if len(t.Dimensions) == 0 {
+		return 0
+	}
+
+	flatIndex := 0
+	stride := 1
+
+	for i := len(t.Dimensions) - 1; i >= 0; i-- {
+		dimSize := t.Dimensions[i]
+		indexVal := dims[i]
+
+		if indexVal < 0 || indexVal >= dimSize {
+			return -1
+		}
+
+		flatIndex += indexVal * stride
+
+		stride *= dimSize
+	}
+
+	return flatIndex
+}
+
+func (t *NArray) GetValue(dims ...int) float64 {
+	index := t.GetIndex(dims...)
+	if index < 0 {
+		panic(fmt.Sprintf("index dimensions out of range %v <> %v", dims, t.Dimensions))
+	}
+
+	return t.Backing[index]
+}
+
+func (t *NArray) Reshape(dims ...int) *NArray {
+	t.Dimensions = dims
+	return t
+}
+
+func (t *NArray) Flatten() *NArray {
+	t.Dimensions = []int{len(t.Backing)}
+
+	return t
+}
+
 func (t *NArray) ToString() string {
-	return fmt.Sprintf("NArray(data=%v, len=%v)", t.Backing, len(t.Backing))
+	return fmt.Sprintf("NArray(data=%v, len=%v, dims=%v)", t.Backing, len(t.Backing), t.Dimensions)
 }
 
 func (t *NArray) op(other interface{}, opCallback func(first float64, second float64) float64) (*NArray, error) {
@@ -134,6 +192,15 @@ func Cosh(array *NArray) *NArray {
 	result := NewNArrayEmpty(len(array.Backing))
 	for i, value := range array.Backing {
 		result.Backing[i] = math.Cosh(value)
+	}
+
+	return result
+}
+
+func Log(array *NArray) *NArray {
+	result := NewNArrayEmpty(len(array.Backing))
+	for i, value := range array.Backing {
+		result.Backing[i] = math.Log(value)
 	}
 
 	return result

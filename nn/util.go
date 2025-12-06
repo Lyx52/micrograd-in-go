@@ -2,6 +2,9 @@ package nn
 
 import (
 	"math/rand"
+	"sort"
+
+	"github.com/Lyx52/micrograd-in-go.git/types"
 )
 
 func Fill[T any](arr []T, value T) []T {
@@ -12,6 +15,20 @@ func Fill[T any](arr []T, value T) []T {
 	return arr
 }
 
+func GetTotalElements[TInput int | int32](dims []TInput) int {
+	if len(dims) == 0 {
+		return 0
+	}
+
+	total := dims[0]
+
+	for i := 0; i < len(dims)-1; i++ {
+		total *= dims[i+1]
+	}
+
+	return int(total)
+}
+
 func MapFloat64Slice(arr []float64, mapCallback func(float64, int) float64) []float64 {
 	result := make([]float64, len(arr))
 	for i := 0; i < len(arr); i++ {
@@ -19,28 +36,6 @@ func MapFloat64Slice(arr []float64, mapCallback func(float64, int) float64) []fl
 	}
 
 	return result
-}
-
-func CrossEntropyLoss(module ICallable, ys []*Tensor, xs []*Tensor, batchSize int) (*Tensor, error) {
-	samplesX, samplesY := SampleDataset(ys, xs, batchSize)
-	losses := make([]*Tensor, len(samplesX))
-	for i := 0; i < len(samplesX); i++ {
-		result, err := module.Execute(samplesX[i])
-		if err != nil {
-			return nil, err
-		}
-
-		losses[i], err = result.Mse(samplesY[i])
-		if err != nil {
-			return nil, err
-		}
-	}
-	result, err := TensorDiv(NewFromTensors(losses).Sum(), float64(len(losses)))
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
 }
 
 func sampleIndices(arr []*Tensor, count int) []int {
@@ -69,4 +64,22 @@ func SampleDataset(ys []*Tensor, xs []*Tensor, batchSize int) ([]*Tensor, []*Ten
 	}
 
 	return samplesX, samplesY
+}
+
+func OneHotEncodeAny(labels []any) map[string][]float64 {
+	return OneHotEncode(types.ToStringSlice(labels))
+}
+
+func OneHotEncode(labels []string) map[string][]float64 {
+	sort.Strings(labels)
+	mapping := make(map[string][]float64)
+	step := 0
+
+	for i := 0; i < len(labels); i++ {
+		mapping[labels[i]] = make([]float64, len(labels))
+		mapping[labels[i]][step] = 1.0
+		step++
+	}
+
+	return mapping
 }

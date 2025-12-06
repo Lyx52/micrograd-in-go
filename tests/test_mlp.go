@@ -2,12 +2,19 @@ package tests
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Lyx52/micrograd-in-go.git/nn"
 )
 
-func Test_MLP() {
-	context := nn.NewNeuralContext(0)
+func Test_MLP(useRandom bool) {
+	var context *nn.NeuralContext
+	if useRandom {
+		context = nn.NewNeuralContext(time.Now().UnixMilli())
+	} else {
+		context = nn.NewNeuralContext(0)
+	}
+
 	mlp := nn.NewModule(context,
 		nn.NewLinearLayer(context, 3, 4, true, nn.TanhActivation),
 		nn.NewLinearLayer(context, 4, 4, true, nn.TanhActivation),

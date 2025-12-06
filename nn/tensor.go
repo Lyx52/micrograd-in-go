@@ -18,13 +18,17 @@ type Tensor struct {
 	backward  func(parent *Tensor)
 }
 
-func NewTensor(values ...float64) *Tensor {
+func NewTensorFromArray(values []float64) *Tensor {
 	return &Tensor{
-		Backing:   NewNArrayFromValues(values...),
+		Backing:   NewNArray(values),
 		Gradients: make([]float64, len(values)),
 		Children:  make([]*Tensor, 0),
 		backward:  nil,
 	}
+}
+
+func NewTensor(values ...float64) *Tensor {
+	return NewTensorFromArray(values)
 }
 
 func NewTensorRand(length int, rand *rand.Rand) *Tensor {
@@ -71,15 +75,18 @@ func NewFromTensors(tensors []*Tensor) *Tensor {
 }
 
 func DivBackward(parent *Tensor) {
+	epsilon := 1e-7
 	first := parent.Children[0]
 	second := parent.Children[1]
 	x := first.Backing
-	y := second.Backing
+	y := MapFloat64Slice(second.Backing.Backing, func(value float64, i int) float64 {
+		return math.Copysign(math.Max(epsilon, math.Abs(value)), value)
+	})
 
 	if parent.IsScalar() {
 		for i, _ := range first.Gradients {
-			first.Gradients[i] += (1 / y.Backing[i]) * parent.Gradients[0]
-			second.Gradients[i] += (-x.Backing[i] / (y.Backing[i] * y.Backing[i])) * parent.Gradients[0]
+			first.Gradients[i] += (1 / y[i]) * parent.Gradients[0]
+			second.Gradients[i] += (-x.Backing[i] / (y[i] * y[i])) * parent.Gradients[0]
 		}
 	} else {
 		if !parent.TensorEqual(first) || !parent.TensorEqual(second) {
@@ -87,8 +94,8 @@ func DivBackward(parent *Tensor) {
 		}
 
 		for i, _ := range first.Gradients {
-			first.Gradients[i] += (1 / y.Backing[i]) * parent.Gradients[i]
-			second.Gradients[i] += (-x.Backing[i] / (y.Backing[i] * y.Backing[i])) * parent.Gradients[i]
+			first.Gradients[i] += (1 / y[i]) * parent.Gradients[i]
+			second.Gradients[i] += (-x.Backing[i] / (y[i] * y[i])) * parent.Gradients[i]
 		}
 	}
 }
@@ -129,12 +136,30 @@ func MulBackward(parent *Tensor) {
 		}
 	} else {
 		if !parent.TensorEqual(first) || !parent.TensorEqual(second) {
-			panic("DivBackward: Expected child tensor to be equal to parent")
+			panic("MulBackward: Expected child tensor to be equal to parent")
 		}
 
 		for i, _ := range first.Gradients {
 			first.Gradients[i] += second.Backing.Backing[i] * parent.Gradients[i]
 			second.Gradients[i] += first.Backing.Backing[i] * parent.Gradients[i]
+		}
+	}
+}
+
+func LogBackward(parent *Tensor) {
+	epsilon := 1e-7
+	child := parent.Children[0]
+	if parent.IsScalar() {
+		for i, _ := range child.Gradients {
+			child.Gradients[i] += (1.0 / math.Max(epsilon, child.Backing.Backing[i])) * parent.Gradients[0]
+		}
+	} else {
+		if !parent.TensorEqual(child) {
+			panic("LogBackward: Expected child tensor to be equal to parent")
+		}
+
+		for i, _ := range child.Gradients {
+			child.Gradients[i] += (1.0 / math.Max(epsilon, child.Backing.Backing[i])) * parent.Gradients[i]
 		}
 	}
 }
@@ -235,6 +260,18 @@ func (t *Tensor) ToString() string {
 	return fmt.Sprintf("Tensor(data=%v, gradients=%v, children=%v)", t.Backing.ToString(), t.Gradients, len(t.Children))
 }
 
+func (t *Tensor) Flatten() *Tensor {
+	t.Backing.Flatten()
+
+	return t
+}
+
+func (t *Tensor) Reshape(dims ...int) *Tensor {
+	t.Backing.Reshape(dims...)
+
+	return t
+}
+
 func (t *Tensor) IsScalar() bool {
 	return t.Backing.IsScalar()
 }
@@ -246,6 +283,15 @@ func (t *Tensor) AvgGradient() float64 {
 	}
 
 	return sum / float64(len(t.Gradients))
+}
+
+func (t *Tensor) MaxValue() float64 {
+	maxValue := float64(math.MinInt32)
+	for _, value := range t.Backing.Backing {
+		maxValue = math.Max(maxValue, value)
+	}
+
+	return maxValue
 }
 
 func (t *Tensor) Backward() {
@@ -291,6 +337,17 @@ func (t *Tensor) Sum() *Tensor {
 	}
 }
 
+func (t *Tensor) Log() *Tensor {
+	log := Log(t.Backing)
+
+	return &Tensor{
+		log,
+		make([]float64, len(log.Backing)),
+		[]*Tensor{t},
+		LogBackward,
+	}
+}
+
 func (t *Tensor) Mse(expected *Tensor) (*Tensor, error) {
 	if !t.TensorEqual(expected) {
 		return nil, errors.New("expected tensor to be equal to tensor")
@@ -309,6 +366,22 @@ func (t *Tensor) Mse(expected *Tensor) (*Tensor, error) {
 	}
 
 	return result, nil
+}
+
+func (t *Tensor) CategoricalCrossEntropy(expected *Tensor) (*Tensor, error) {
+	if !t.TensorEqual(expected) {
+		return nil, errors.New("expected tensor to be equal to tensor")
+	}
+
+	logOfPrediction := t.Log()
+
+	result, err := expected.Mul(logOfPrediction)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Sum().Negate()
 }
 
 func (t *Tensor) ExpandTo(length int) *Tensor {
